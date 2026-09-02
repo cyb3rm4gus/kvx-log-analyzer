@@ -38,7 +38,7 @@
         <tr>
           <td><a href="/accounts/{{ r['uuid'] }}" class="font-monospace">{{ r['uuid'] }}</a></td>
           <td><span class="badge {{ STATUS_BADGE.get(r['status'], 'bg-secondary-lt') }}">{{ r['status'] }}</span></td>
-          <td class="text-end">{{ r['pages_done'] }}{% if r['pages_done'] > 1 %} <span class="text-warning" title="page-boundary caveat">!</span>{% endif %}</td>
+          <td class="text-end">{{ r['pages_done'] }}</td>
           <td class="text-end">{{ r['events'] }}</td>
           <td class="text-end">{{ ip_counts.get(r['uuid'], 0) }}</td>
           <td class="text-secondary small">{{ r['error'] or '' }}</td>
@@ -48,7 +48,7 @@
     </table>
   </div>
   <div class="card-footer text-secondary small">
-    <b>!</b> = more than one page: until Guardhouse fixes its page ordering (finding H3), rows at a page boundary may be missing or doubled; the account page says so.
+    Pages are 1 000 events each, pulled newest-first with a unique tiebreaker (Guardhouse fix of 2026-09-02); an event arriving mid-pull can appear on two pages and is collapsed by the store.
   </div>
 </div>
 {% endblock %}

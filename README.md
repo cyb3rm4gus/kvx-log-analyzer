@@ -25,9 +25,12 @@ client discards them before anything is written (`guardhouse.py: strip_pii`, gua
 
 ## Limits you will notice
 
-- **Page-boundary caveat** on accounts with more than 1 000 events: Guardhouse's paging has no
-  unique tiebreaker (scale-audit finding H3, unfixed by owner decision), so a row at a page
-  boundary may be missing or doubled. The page says so.
+- **Paging is exact** since Guardhouse's `events_by_uuid` gained a unique tiebreaker (its
+  scale-audit finding H3, fixed 2026-09-02) — provided the Guardhouse *image* you run was rebuilt
+  after that fix (the SQL is baked into the image). An event arriving mid-pull can still show up on
+  two pages; the store collapses that exact repeat.
+- **A page over 64 MiB is abandoned** as an upstream error (Guardhouse finding H2, still open on
+  its side): that uuid fails loudly rather than exhausting memory; retry it from the batch page.
 - **IPQS** costs one credit per lookup; the button shows the cost and stops at 250/day.
 - The automatic RDAP pass runs at one request per second per registry, after the events are in.
 

@@ -39,7 +39,8 @@ async def test_no_pii_reaches_the_store(runner: JobRunner, db: Database):
 async def test_duplicate_across_page_boundary_collapses_exact_repeat(runner: JobRunner, db: Database, mock_gh: MockGuardhouse):
     e = ev("2026-08-01 10:00:00")
     other = ev("2026-08-01 10:00:00", url="https://platform.example/other")
-    # page 1 ends with `e`, page 2 starts with `e` again (H3-style duplicate); `other` distinct same-second row
+    # page 1 ends with `e`, page 2 starts with `e` again (an event arriving mid-pull shifts the OFFSET);
+    # `other` is a distinct same-second row and must survive
     mock_gh.pages[U1] = [[other, e], [e, ev("2026-07-31 09:00:00")]]
     await run(runner, "b1", [U1])
     assert len(db.events_for(U1)) == 3

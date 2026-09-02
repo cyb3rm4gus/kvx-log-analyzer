@@ -8,9 +8,6 @@
   {% for m in v.membership %}<span class="badge {{ STATUS_BADGE.get(m['status'], 'bg-secondary-lt') }} ms-1">{{ m['status'] }}</span>{% if m['error'] %} <span class="small">{{ m['error'] }}</span>{% endif %}{% endfor %}
 </div>
 {% else %}
-{% if v.caveat %}
-<div class="alert alert-warning"><b>Page-boundary caveat.</b> This account came in {{ v.pages }} pages. Until Guardhouse fixes its page ordering (scale-audit finding H3), an event at a page boundary may be missing or shown twice; this tool cannot tell which.</div>
-{% endif %}
 {% if run %}
 <div class="alert {% if run.finished %}alert-success{% else %}alert-info{% endif %}">
   IPQS {% if run.finished %}finished{% else %}running{% endif %}: {{ run.done }} of {{ run.total }} looked up{% if run.failed %}, {{ run.failed }} failed{% endif %}{% if run.capped %}, {{ run.capped }} left for tomorrow (daily cap){% endif %}.

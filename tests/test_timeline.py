@@ -31,12 +31,15 @@ def test_markers_are_chronological_and_view_is_newest_first(db: Database):
     assert r3.ip_changed is False and r3.ua_change == "major" and "Chrome" in r3.prev_ua_desc
     assert v["ip_changes"] == 1 and v["ua_changes"] == 2
     assert v["countries"][0] == ("DE", 3)
-    assert v["caveat"] is False
+    assert v["pages"] == 1
 
 
-def test_caveat_when_more_than_one_page(db: Database):
+def test_pages_reported_without_caveat(db: Database):
+    # Guardhouse's H3 (page-boundary drops) was fixed 2026-09-02 (unique `id` tiebreaker); the
+    # view reports the page count and no longer carries a caveat flag.
     load(db, pages=2)
-    assert build_account_view(db, U1)["caveat"] is True
+    v = build_account_view(db, U1)
+    assert v["pages"] == 2 and "caveat" not in v
 
 
 def test_filters_keep_change_context(db: Database):

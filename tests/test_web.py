@@ -66,7 +66,6 @@ def test_account_page_and_golden_timeline(client, db):
     assert "IP changed" in html and "UA changed" in html and "UA version" in html
     assert "EXAMPLE-AS" in html and "Data Center" in html and "score 88.0" in html
     assert "IPQS_KEY not set" in html
-    assert "Page-boundary caveat" not in html
     # golden pin of the timeline table (fetched-at stamps stripped: they are wall-clock)
     table = re.search(r'<table class="table table-sm card-table table-vcenter small timeline">.*?</table>', html, re.S).group(0)
     table = re.sub(r"fetched \d{4}-\d{2}-\d{2} \d{2}:\d{2}", "fetched <t>", table)
@@ -104,11 +103,12 @@ def test_native_tabler_badges_only(client, db):
     assert "bg-green-lt" in page and 'class="badge status-' not in page   # no custom status-* classes
 
 
-def test_caveat_shown_for_multi_page_account(client, db):
+def test_multi_page_account_has_no_caveat(client, db):
     db.create_batch("b1", [U1])
     db.insert_events_page("b1", U1, list(reversed(sample_events())), 1, has_more=True)
     db.insert_events_page("b1", U1, [], 2, has_more=False)
-    assert "Page-boundary caveat" in client.get(f"/accounts/{U1}").text
+    page = client.get(f"/accounts/{U1}").text
+    assert "caveat" not in page.lower() and page.count("session <a") == 3
 
 
 def test_ipqs_button_respects_daily_cap(app, client, db, settings):

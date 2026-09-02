@@ -16,7 +16,7 @@
     if (tbody) {
       tbody.innerHTML = d.uuids.map(function (u) {
         var cls = badge[u.status] || "bg-secondary-lt";
-        var pages = u.pages + (u.pages > 1 ? ' <span class="text-warning" title="page-boundary caveat">!</span>' : "");
+        var pages = u.pages;
         return '<tr><td><a class="font-monospace" href="/accounts/' + esc(u.uuid) + '">' + esc(u.uuid) + '</a></td>' +
           '<td><span class="badge ' + cls + '">' + esc(u.status) + '</span></td>' +
           '<td class="text-end">' + pages + '</td>' +

@@ -175,7 +175,6 @@ def build_account_view(db: Database, uuid: str, filters: Filters | None = None) 
         "ipqs_cached": sum(1 for ip in ips if ip in ipqs),
         "ipqs_pending": [ip for ip in ips if ip not in ipqs],
         "days": days,
-        "caveat": pages > 1,
         "pages": pages,
         "membership": [dict(m) for m in membership],
         "filters": filters,

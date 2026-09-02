@@ -4,7 +4,12 @@ automatic enrichment pass. Progress is streamed to the batch page over SSE.
 
 Every wait is bounded (spec §1.4 "fails loud"): a uuid that Guardhouse keeps throttling, keeps
 failing, or that the analyst's VPN keeps dropping ends as `failed` with the reason, and the
-batch page offers "retry failed"."""
+batch page offers "retry failed".
+
+Paging is deterministic since Guardhouse appended the unique `id` to the `events_by_uuid`
+ORDER BY (finding H3, fixed 2026-09-02): no rows are dropped at page boundaries any more. What
+remains is an event arriving mid-pull shifting later pages by one — the store's uniqueness key
+over all nine columns collapses that exact repeat."""
 
 from __future__ import annotations
 
