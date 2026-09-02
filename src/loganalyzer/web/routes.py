@@ -25,6 +25,15 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 ACCOUNT_CACHE_SECONDS = 600
 
+#: uuid/batch status → a Tabler *native* light badge (readable: light bg, matching text colour).
+STATUS_BADGE = {
+    "queued": "bg-secondary-lt", "fetching": "bg-azure-lt", "running": "bg-azure-lt",
+    "paused": "bg-yellow-lt", "enriching": "bg-azure-lt", "done": "bg-green-lt",
+    "no_events": "bg-yellow-lt", "unknown": "bg-orange-lt", "failed": "bg-red-lt",
+}
+TERMINAL = frozenset({"done", "no_events", "unknown", "failed"})
+templates.env.globals["STATUS_BADGE"] = STATUS_BADGE
+
 
 @dataclass
 class IpqsRun:
@@ -105,6 +114,42 @@ async def retry_failed(request: Request, batch_id: str) -> Any:
         return render(request, "error.html", message="No such batch.", status=404)
     st.runner.start(batch_id, retry_failed=True)
     return RedirectResponse(f"/batches/{batch_id}", status_code=303)
+
+
+@router.get("/batches/{batch_id}/status")
+async def batch_status(request: Request, batch_id: str) -> JSONResponse:
+    """Live JSON the batch page polls: per-uuid status/pages/events/IPs, phase, enrichment progress,
+    and the recent log. Fixes the frozen table — the uuid rows and the enrichment phase now update
+    without waiting for the whole job (enrichment of thousands of IPs is slow) to finish."""
+    st = _state(request)
+    batch = st.db.one("SELECT * FROM batches WHERE id = ?", (batch_id,))
+    if not batch:
+        return JSONResponse({"error": "no such batch"}, status_code=404)
+    rows = st.db.batch_uuids(batch_id)
+    uuids = [r["uuid"] for r in rows]
+    ip_counts = st.db.distinct_ip_counts(uuids)
+    job = st.runner.jobs.get(batch_id)
+    live = job is not None and not job.done
+    all_terminal = all(r["status"] in TERMINAL for r in rows)
+    if job and job.phase == "enriching":
+        phase = "enriching"
+    elif live:
+        phase = "enriching" if all_terminal else "fetching"
+    else:
+        phase = batch["status"]
+    enrich = None
+    if phase == "enriching" or (batch["status"] == "done"):
+        total, done = st.db.batch_ip_stats(uuids)
+        enrich = {"done": done, "total": total}
+    return JSONResponse({
+        "batch_status": batch["status"], "phase": phase, "live": live,
+        "enrich": enrich,
+        "uuids": [{"uuid": r["uuid"], "status": r["status"], "pages": r["pages_done"],
+                   "events": r["events"], "ips": ip_counts.get(r["uuid"], 0),
+                   "error": r["error"] or ""} for r in rows],
+        "log": [p.message for p in (job.events[-200:] if job else [])],
+        "badge": STATUS_BADGE,
+    })
 
 
 @router.get("/batches/{batch_id}/events")

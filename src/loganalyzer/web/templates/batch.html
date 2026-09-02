@@ -1,10 +1,11 @@
 {% extends "base.html" %}
 {% block title %}Batch {{ batch['id'] }}{% endblock %}
-{% block head %}{% if live %}<script src="/static/progress.js" defer></script>{% endif %}{% endblock %}
+{% block head %}{% if live %}<script src="/static/batch.js" defer></script>{% endif %}{% endblock %}
 {% block content %}
+<div id="batch" data-batch-id="{{ batch['id'] }}"></div>
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h2 class="mb-0">Batch <span class="font-monospace">{{ batch['id'] }}</span>
-    <span class="badge status-{{ batch['status'] }} ms-2">{{ batch['status'] }}</span></h2>
+    <span class="badge {{ STATUS_BADGE.get(batch['status'], 'bg-secondary-lt') }} ms-2">{{ batch['status'] }}</span></h2>
   <form method="post" action="/batches/{{ batch['id'] }}/purge" class="m-0">
     <button class="btn btn-outline-danger btn-sm" type="submit">Purge batch</button>
   </form>
@@ -22,18 +23,21 @@
 {% if live %}
 <div class="card mb-3">
   <div class="card-header"><h3 class="card-title">Progress</h3><span class="ms-auto text-secondary small">live</span></div>
-  <div class="card-body"><div id="log" class="font-monospace small progress-log" data-batch-id="{{ batch['id'] }}"></div></div>
+  <div class="card-body">
+    <div id="phase" class="mb-3">Starting…</div>
+    <div id="log" class="font-monospace small progress-log"></div>
+  </div>
 </div>
 {% endif %}
 <div class="card">
   <div class="table-responsive">
     <table class="table table-vcenter card-table table-sm">
       <thead><tr><th>uuid</th><th>Status</th><th class="text-end">Pages</th><th class="text-end">Events</th><th class="text-end">IPs</th><th>Note</th></tr></thead>
-      <tbody>
+      <tbody id="uuid-rows">
       {% for r in rows %}
         <tr>
           <td><a href="/accounts/{{ r['uuid'] }}" class="font-monospace">{{ r['uuid'] }}</a></td>
-          <td><span class="badge status-{{ r['status'] }}">{{ r['status'] }}</span></td>
+          <td><span class="badge {{ STATUS_BADGE.get(r['status'], 'bg-secondary-lt') }}">{{ r['status'] }}</span></td>
           <td class="text-end">{{ r['pages_done'] }}{% if r['pages_done'] > 1 %} <span class="text-warning" title="page-boundary caveat">!</span>{% endif %}</td>
           <td class="text-end">{{ r['events'] }}</td>
           <td class="text-end">{{ ip_counts.get(r['uuid'], 0) }}</td>

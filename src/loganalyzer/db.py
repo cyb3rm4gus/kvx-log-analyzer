@@ -186,6 +186,19 @@ class Database:
                 out.append(ip)
         return out
 
+    def batch_ip_stats(self, uuids: list[str]) -> tuple[int, int]:
+        """(distinct IPs across the batch, of which enriched without error) — for the progress bar."""
+        if not uuids:
+            return (0, 0)
+        marks = ",".join("?" * len(uuids))
+        total = self.one(
+            f"SELECT COUNT(DISTINCT ip_address) FROM events WHERE player_uuid IN ({marks}) AND ip_address != ''",
+            uuids)[0]
+        enriched = self.one(
+            f"""SELECT COUNT(DISTINCT e.ip_address) FROM events e JOIN ips i ON i.ip = e.ip_address
+                 WHERE e.player_uuid IN ({marks}) AND e.ip_address != '' AND i.error IS NULL""", uuids)[0]
+        return (int(total), int(enriched))
+
     def distinct_ip_counts(self, uuids: list[str]) -> dict[str, int]:
         if not uuids:
             return {}

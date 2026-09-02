@@ -5,7 +5,7 @@
 <h2>Account <span class="font-monospace">{{ v.uuid }}</span></h2>
 {% if v.events == 0 %}
 <div class="alert alert-info">No events stored for this account.
-  {% for m in v.membership %}<span class="badge status-{{ m['status'] }} ms-1">{{ m['status'] }}</span>{% if m['error'] %} <span class="small">{{ m['error'] }}</span>{% endif %}{% endfor %}
+  {% for m in v.membership %}<span class="badge {{ STATUS_BADGE.get(m['status'], 'bg-secondary-lt') }} ms-1">{{ m['status'] }}</span>{% if m['error'] %} <span class="small">{{ m['error'] }}</span>{% endif %}{% endfor %}
 </div>
 {% else %}
 {% if v.caveat %}
@@ -121,9 +121,9 @@
       <thead><tr><th>Time</th><th>Session</th><th>Path</th><th>Referrer</th><th>IP</th><th>CC / lang</th><th>User agent</th></tr></thead>
       <tbody>
       {% for day, groups in v.days %}
-        <tr class="day-row"><td colspan="7"><b>{{ day }}</b> — {% set n = [] %}{% for _, rs in groups %}{% set _ = n.append(rs|length) %}{% endfor %}{{ n|sum }} event(s), {{ groups|length }} session block(s)</td></tr>
+        <tr class="table-active"><td colspan="7"><b>{{ day }}</b> — {% set n = [] %}{% for _, rs in groups %}{% set _ = n.append(rs|length) %}{% endfor %}{{ n|sum }} event(s), {{ groups|length }} session block(s)</td></tr>
         {% for session, rows in groups %}
-        <tr class="session-row"><td colspan="7" class="text-secondary">session <a class="font-monospace" href="/accounts/{{ v.uuid }}?session={{ session }}">{{ session }}</a> — {{ rows|length }} event(s)</td></tr>
+        <tr><td colspan="7" class="text-secondary small">session <a class="font-monospace" href="/accounts/{{ v.uuid }}?session={{ session }}">{{ session }}</a> — {{ rows|length }} event(s)</td></tr>
         {% for r in rows %}
         <tr class="{% if r.ip_changed %}ip-changed {% endif %}{% if r.ua_change %}ua-{{ r.ua_change }}{% endif %}">
           <td class="font-monospace">{{ r.time }}</td>

@@ -29,7 +29,7 @@
             <tr>
               <td><a href="/batches/{{ b['id'] }}" class="font-monospace">{{ b['id'] }}</a></td>
               <td>{{ b['created_at'] }}</td>
-              <td><span class="badge status-{{ b['status'] }}">{{ b['status'] }}</span></td>
+              <td><span class="badge {{ STATUS_BADGE.get(b['status'], 'bg-secondary-lt') }}">{{ b['status'] }}</span></td>
               <td class="text-end">{{ b['uuid_count'] }}</td>
               <td class="text-end">{{ b['finished'] or 0 }}</td>
               <td class="text-end">{{ b['events'] or 0 }}</td>

@@ -14,8 +14,7 @@ GOLDEN = Path(__file__).parent / "fixtures" / "account_timeline.html"
 
 def wait_batch(client, batch_id: str, timeout: float = 5.0) -> None:
     for _ in range(int(timeout / 0.05)):
-        r = client.get(f"/batches/{batch_id}")
-        if 'status-running">running' not in r.text and 'live' not in r.text:
+        if not client.get(f"/batches/{batch_id}/status").json().get("live"):
             return
         time.sleep(0.05)
     raise AssertionError("batch did not finish")
@@ -42,7 +41,10 @@ def test_paste_creates_batch_and_runs(client, db):
     assert "rejected=1" in r.headers["location"]
     wait_batch(client, batch_id)
     page = client.get(f"/batches/{batch_id}").text
-    assert 'status-unknown' in page and page.count('status-done') >= 2
+    assert "bg-orange-lt" in page and page.count("bg-green-lt") >= 2   # unknown + done, native Tabler badges
+    status = client.get(f"/batches/{batch_id}/status").json()
+    assert status["phase"] in ("done", "enriching") and not status["live"]
+    assert {u["status"] for u in status["uuids"]} == {"done", "unknown"}
     assert client.get(f"/batches/{batch_id}/events").text.strip().endswith("event: end\ndata: {}")
     assert batch_id in client.get("/").text
 
@@ -72,11 +74,34 @@ def test_account_page_and_golden_timeline(client, db):
         GOLDEN.write_text(table)
     assert GOLDEN.exists(), "golden fixture missing — regenerate deliberately with UPDATE_GOLDEN=1"
     assert table == GOLDEN.read_text()
-    assert "session-row" in table and table.count("session <a") == 3
+    assert table.count("session <a") == 3
     # filters
     assert "1 of 4 events" in client.get(f"/accounts/{U1}?path=deposit").text
     assert client.get(f"/accounts/{U2}").status_code == 200   # no events: informative, not an error
     assert client.get("/accounts/not-a-uuid").status_code == 404
+
+
+def test_status_endpoint_shows_done_uuids_during_enrichment(app, client, db):
+    # the reported bug: table frozen on "fetching" while the log counts thousands of IPs.
+    # With uuids terminal but a job still in the enriching phase, /status must report them done.
+    from loganalyzer.jobs import BatchJob
+    db.create_batch("b1", [U1])
+    db.insert_events_page("b1", U1, list(reversed(sample_events())), 1, has_more=False)  # 2 distinct IPs
+    db.save_ip("203.0.113.10", net_name="X", asn=1)                                       # 1 enriched
+    job = BatchJob("b1"); job.phase = "enriching"; job.emit("enrichment: 1 of 2 IPs")
+    app.state.runner.jobs["b1"] = job
+    s = client.get("/batches/b1/status").json()
+    assert s["live"] and s["phase"] == "enriching"
+    assert s["uuids"][0]["status"] == "done" and s["uuids"][0]["ips"] == 2
+    assert s["enrich"] == {"done": 1, "total": 2}
+    assert s["log"] == ["enrichment: 1 of 2 IPs"]
+
+
+def test_native_tabler_badges_only(client, db):
+    db.create_batch("b1", [U1]); db.set_batch_status("b1", "done")
+    db.set_uuid_status("b1", U1, "done")
+    page = client.get("/batches/b1").text
+    assert "bg-green-lt" in page and 'class="badge status-' not in page   # no custom status-* classes
 
 
 def test_caveat_shown_for_multi_page_account(client, db):

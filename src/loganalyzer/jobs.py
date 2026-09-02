@@ -40,6 +40,7 @@ class BatchJob:
     batch_id: str
     events: list[Progress] = field(default_factory=list)
     done: bool = False
+    phase: str = "fetching"   # fetching → enriching → done
     task: asyncio.Task[None] | None = None
     _waiters: list[asyncio.Event] = field(default_factory=list)
 
@@ -104,7 +105,9 @@ class JobRunner:
                 job.emit("batch failed: Guardhouse rejected the token — check GH_TOKEN")
                 return
             if self.settings.enrich and self.enricher:
+                job.phase = "enriching"
                 await self._enrich(batch_id, job)
+            job.phase = "done"
             self.db.set_batch_status(batch_id, "done")
             failed = sum(1 for r in self.db.batch_uuids(batch_id) if r["status"] == "failed")
             job.emit("done" + (f" — {failed} uuid(s) failed, see the table (retry available)" if failed else ""))
