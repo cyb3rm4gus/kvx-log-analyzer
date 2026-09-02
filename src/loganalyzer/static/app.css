@@ -1,0 +1,15 @@
+.progress-log { max-height: 16rem; overflow-y: auto; white-space: pre-wrap; }
+.badge.status-running, .badge.status-fetching { background: var(--tblr-azure); }
+.badge.status-done { background: var(--tblr-green); }
+.badge.status-queued, .badge.status-paused { background: var(--tblr-secondary); }
+.badge.status-no_events, .badge.status-unknown { background: var(--tblr-yellow); color: #000; }
+.badge.status-failed { background: var(--tblr-red); }
+.timeline tr.session-row td { font-size: 0.85em; }
+.timeline tr.ua-downgrade td { border-top: 2px solid var(--tblr-red); }
+.timeline tr.day-row td { background: var(--tblr-bg-surface-secondary); }
+.timeline tr.ip-changed td { border-top: 2px solid var(--tblr-yellow); }
+.timeline tr.ua-major td { border-top: 2px solid var(--tblr-red); }
+.timeline tr.ua-minor td:last-child { font-style: italic; }
+.timeline-filters input { max-width: 9rem; }
+.fetched { font-size: 0.75em; }
+.ua-raw { max-width: 32rem; }

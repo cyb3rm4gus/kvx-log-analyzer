@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en" data-bs-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Log Analyzer{% endblock %}</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/vendor/tabler/tabler.min.css">
+  <link rel="stylesheet" href="/static/app.css">
+  {% block head %}{% endblock %}
+</head>
+<body class="d-flex flex-column">
+  <header class="navbar navbar-expand-md d-print-none">
+    <div class="container-xl">
+      <div class="navbar-brand navbar-brand-autodark">
+        <a href="/" class="text-decoration-none">Log Analyzer</a>
+      </div>
+      <div class="navbar-nav flex-row order-md-last align-items-center gap-3">
+        <span class="nav-item text-secondary small">Guardhouse events · RDAP/ASN · IPQS on demand · UA drift</span>
+      </div>
+    </div>
+  </header>
+  <div class="page-wrapper">
+    <div class="page-body">
+      <div class="container-xl">
+        {% block content %}{% endblock %}
+      </div>
+    </div>
+    <footer class="footer footer-transparent d-print-none">
+      <div class="container-xl">
+        <div class="row text-secondary small"><div class="col">
+          All times are UTC, as the warehouse records them. No email or phone is ever stored here.
+        </div></div>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>

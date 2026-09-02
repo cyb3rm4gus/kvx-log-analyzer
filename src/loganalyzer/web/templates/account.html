@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+{% block title %}Account {{ v.uuid[:8] }}{% endblock %}
+{% block head %}{% if run and not run.finished %}<meta http-equiv="refresh" content="3">{% endif %}{% endblock %}
+{% block content %}
+<h2>Account <span class="font-monospace">{{ v.uuid }}</span></h2>
+{% if v.events == 0 %}
+<div class="alert alert-info">No events stored for this account.
+  {% for m in v.membership %}<span class="badge status-{{ m['status'] }} ms-1">{{ m['status'] }}</span>{% if m['error'] %} <span class="small">{{ m['error'] }}</span>{% endif %}{% endfor %}
+</div>
+{% else %}
+{% if v.caveat %}
+<div class="alert alert-warning"><b>Page-boundary caveat.</b> This account came in {{ v.pages }} pages. Until Guardhouse fixes its page ordering (scale-audit finding H3), an event at a page boundary may be missing or shown twice; this tool cannot tell which.</div>
+{% endif %}
+{% if run %}
+<div class="alert {% if run.finished %}alert-success{% else %}alert-info{% endif %}">
+  IPQS {% if run.finished %}finished{% else %}running{% endif %}: {{ run.done }} of {{ run.total }} looked up{% if run.failed %}, {{ run.failed }} failed{% endif %}{% if run.capped %}, {{ run.capped }} left for tomorrow (daily cap){% endif %}.
+  {% for e in run.errors %}<div class="small">{{ e }}</div>{% endfor %}
+</div>
+{% endif %}
+
+<div class="row row-cards mb-3">
+  <div class="col-md-4">
+    <div class="card h-100"><div class="card-body">
+      <h3 class="card-title">Summary</h3>
+      <dl class="row mb-0 small">
+        <dt class="col-5">First seen</dt><dd class="col-7 font-monospace">{{ v.first_seen }}</dd>
+        <dt class="col-5">Last seen</dt><dd class="col-7 font-monospace">{{ v.last_seen }}</dd>
+        <dt class="col-5">Events</dt><dd class="col-7">{{ v.events }}</dd>
+        <dt class="col-5">Sessions</dt><dd class="col-7">{{ v.sessions }}</dd>
+        <dt class="col-5">Countries</dt><dd class="col-7">{% for c, n in v.countries %}{{ c }} ({{ n }}){% if not loop.last %}, {% endif %}{% endfor %}</dd>
+        <dt class="col-5">IP changes</dt><dd class="col-7">{{ v.ip_changes }}</dd>
+        <dt class="col-5">UA changes</dt><dd class="col-7">{{ v.ua_changes }}</dd>
+        <dt class="col-5">Enriched</dt><dd class="col-7">{{ v.enriched }} of {{ v.ips|length }} IPs (RDAP/ASN){% if v.enrich_errors %}, {{ v.enrich_errors }} failed (retried next batch){% endif %}</dd>
+      </dl>
+    </div></div>
+  </div>
+  <div class="col-md-8">
+    <div class="card h-100">
+      <div class="card-header"><h3 class="card-title">IP addresses ({{ v.ips|length }})</h3>
+        <form method="post" action="/accounts/{{ v.uuid }}/ipqs" class="ms-auto d-flex gap-2 align-items-center m-0">
+          {% if ipqs_configured %}
+            <span class="text-secondary small">{{ v.ipqs_cached }} cached ·
+              {% if credits is not none %}{{ credits }} credits ·{% endif %} {{ remaining_today }} of {{ daily_cap }} left today</span>
+            <input type="hidden" name="force" value="0">
+            {% if v.ipqs_pending|length > 0 and remaining_today == 0 %}
+              <span class="text-warning small">daily cap reached — {{ v.ipqs_pending|length }} IP(s) wait for tomorrow</span>
+            {% endif %}
+            <button class="btn btn-sm btn-primary" type="submit" {% if cost == 0 or (run and not run.finished) %}disabled{% endif %}>IPQS this account ({{ cost }} lookups{% if v.ipqs_pending|length > cost %} now, {{ v.ipqs_pending|length - cost }} tomorrow{% endif %})</button>
+          {% else %}<span class="text-warning small">IPQS_KEY not set</span>{% endif %}
+        </form>
+        {% if ipqs_configured and v.ipqs_cached %}
+        <form method="post" action="/accounts/{{ v.uuid }}/ipqs" class="ms-2 m-0">
+          <input type="hidden" name="force" value="1">
+          <button class="btn btn-sm btn-outline-secondary" type="submit" {% if run and not run.finished %}disabled{% endif %}>re-check all ({{ v.ips|length }})</button>
+        </form>
+        {% endif %}
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm card-table table-vcenter small">
+          <thead><tr><th>IP</th><th class="text-end">events</th><th>first / last</th><th>Owner (RDAP)</th><th>ASN</th><th>IPQS</th></tr></thead>
+          <tbody>
+          {% for c in v.ips %}
+            <tr>
+              <td><a class="font-monospace" href="/accounts/{{ v.uuid }}?ip={{ c.ip }}">{{ c.ip }}</a></td>
+              <td class="text-end">{{ c.count }}</td>
+              <td class="font-monospace text-secondary">{{ c.first[:16] }}<br>{{ c.last[:16] }}</td>
+              <td>{% if c.info %}{{ c.info.net_name or '' }}{% if c.info.registrant %} — {{ c.info.registrant }}{% endif %}
+                  {% if c.info.net_country %} <span class="badge bg-secondary-lt">{{ c.info.net_country }}</span>{% endif %}
+                  <div class="text-secondary">{{ c.info.net_type or '' }} {{ c.info.net_range or '' }}{% if c.info.error %} <span class="text-danger">{{ c.info.error }}</span>{% endif %}</div>
+                  <div class="text-secondary fetched">fetched {{ (c.info.fetched_at or '')[:16] }}</div>
+                {% else %}<span class="text-secondary">pending</span>{% endif %}</td>
+              <td>{% if c.info and c.info.asn %}AS{{ c.info.asn }} {{ c.info.as_name or '' }}<div class="text-secondary">{{ c.info.prefix or '' }}</div>{% endif %}</td>
+              <td>{% if c.ipqs %}
+                  {% if c.ipqs.fraud_score is not none %}<span class="badge {% if c.ipqs.fraud_score >= 85 %}bg-red{% elif c.ipqs.fraud_score >= 70 %}bg-orange{% else %}bg-green{% endif %}-lt">score {{ c.ipqs.fraud_score }}</span>{% else %}<span class="badge bg-secondary-lt">no score</span>{% endif %}
+                  <b>{{ c.ipqs.connection_type or '?' }}</b> {{ c.ipqs.isp or '' }}
+                  <div class="text-secondary">{% if c.ipqs.proxy %}proxy {% endif %}{% if c.ipqs.vpn %}vpn {% endif %}{% if c.ipqs.active_vpn %}active-vpn {% endif %}{% if c.ipqs.tor %}tor {% endif %}{% if c.ipqs.recent_abuse %}recent-abuse {% endif %}{% if c.ipqs.bot_status %}bot {% endif %}</div>
+                  <div class="text-secondary fetched">fetched {{ (c.ipqs.fetched_at or '')[:16] }}</div>
+                {% elif c.ipqs_error %}<span class="text-danger">lookup failed: {{ c.ipqs_error.error }}</span>
+                  <div class="text-secondary fetched">attempted {{ (c.ipqs_error.attempted_at or '')[:16] }}</div>
+                {% else %}<span class="text-secondary">not looked up</span>{% endif %}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-header"><h3 class="card-title">User agents ({{ v.uas|length }})</h3></div>
+  <div class="table-responsive">
+    <table class="table table-sm card-table small">
+      <thead><tr><th>Parsed</th><th class="text-end">events</th><th>first / last</th><th>Raw</th></tr></thead>
+      <tbody>
+      {% for u in v.uas %}
+        <tr><td>{{ u.desc }}</td><td class="text-end">{{ u.count }}</td>
+            <td class="font-monospace text-secondary">{{ u.first[:16] }} / {{ u.last[:16] }}</td>
+            <td class="text-secondary text-break ua-raw">{{ u.ua }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title">Timeline — {{ v.shown }} of {{ v.events }} events, newest first (UTC)</h3>
+    <form method="get" action="/accounts/{{ v.uuid }}" class="ms-auto d-flex gap-2 m-0 timeline-filters">
+      <input class="form-control form-control-sm" name="session" placeholder="session" value="{{ v.filters.session }}">
+      <input class="form-control form-control-sm" name="ip" placeholder="ip" value="{{ v.filters.ip }}">
+      <input class="form-control form-control-sm" name="path" placeholder="path contains" value="{{ v.filters.path }}">
+      <input class="form-control form-control-sm" name="from" placeholder="from YYYY-MM-DD" value="{{ v.filters.date_from }}">
+      <input class="form-control form-control-sm" name="to" placeholder="to YYYY-MM-DD" value="{{ v.filters.date_to }}">
+      <button class="btn btn-sm" type="submit">Filter</button>
+      {% if v.filters.active() %}<a class="btn btn-sm btn-link" href="/accounts/{{ v.uuid }}">clear</a>{% endif %}
+    </form>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm card-table table-vcenter small timeline">
+      <thead><tr><th>Time</th><th>Session</th><th>Path</th><th>Referrer</th><th>IP</th><th>CC / lang</th><th>User agent</th></tr></thead>
+      <tbody>
+      {% for day, groups in v.days %}
+        <tr class="day-row"><td colspan="7"><b>{{ day }}</b> — {% set n = [] %}{% for _, rs in groups %}{% set _ = n.append(rs|length) %}{% endfor %}{{ n|sum }} event(s), {{ groups|length }} session block(s)</td></tr>
+        {% for session, rows in groups %}
+        <tr class="session-row"><td colspan="7" class="text-secondary">session <a class="font-monospace" href="/accounts/{{ v.uuid }}?session={{ session }}">{{ session }}</a> — {{ rows|length }} event(s)</td></tr>
+        {% for r in rows %}
+        <tr class="{% if r.ip_changed %}ip-changed {% endif %}{% if r.ua_change %}ua-{{ r.ua_change }}{% endif %}">
+          <td class="font-monospace">{{ r.time }}</td>
+          <td><span class="font-monospace text-secondary" title="{{ r.session }}">{{ r.session_short }}</span></td>
+          <td class="text-break">{{ r.path }}{% if r.click_id %}<div class="text-secondary">click_id {{ r.click_id }}</div>{% endif %}</td>
+          <td class="text-secondary text-break">{{ r.referrer }}</td>
+          <td class="font-monospace">{{ r.ip }}
+            {% if r.ip_changed %}<span class="badge bg-yellow-lt" title="was {{ r.prev_ip }}">IP changed</span>{% endif %}
+            {% if r.ip_info.asn %}<div class="text-secondary" title="fetched {{ (r.ip_info.fetched_at or '')[:16] }}">AS{{ r.ip_info.asn }} {{ r.ip_info.as_name or '' }}</div>{% endif %}
+            {% if r.ipqs %}<div class="text-secondary" title="IPQS fetched {{ (r.ipqs.fetched_at or '')[:16] }}">{{ r.ipqs.connection_type or '?' }} · {{ r.ipqs.fraud_score if r.ipqs.fraud_score is not none else 'no score' }}</div>{% endif %}</td>
+          <td>{{ r.country }}{% if r.language %} / {{ r.language }}{% endif %}</td>
+          <td title="{{ r.ua }}">{{ r.ua_desc }}
+            {% if r.ua_change == 'major' %}<span class="badge bg-red-lt" title="was {{ r.prev_ua_desc }}">UA changed</span>
+            {% elif r.ua_change == 'downgrade' %}<span class="badge bg-red-lt" title="was {{ r.prev_ua_desc }}">UA downgrade</span>
+            {% elif r.ua_change == 'minor' %}<span class="badge bg-azure-lt" title="was {{ r.prev_ua_desc }}">UA version</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+        {% endfor %}
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
