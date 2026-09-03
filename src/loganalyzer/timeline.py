@@ -11,6 +11,10 @@ from .db import Database
 from .enrich.ua import Parsed, describe, parse_ua, ua_change
 
 UA_CHANGE_LABEL = {"minor": "upgrade", "downgrade": "downgrade", "major": "browser/OS change"}
+#: change kinds a row can carry; the Changes section's checkboxes use these keys
+CHANGE_KINDS = (("downgrade", "UA downgrade"), ("upgrade", "UA upgrade"), ("major", "browser/OS change"),
+                ("asn", "ASN change"), ("asn_unknown", "IP change, ASN unknown"))
+ALL_KINDS = frozenset(k for k, _ in CHANGE_KINDS)
 
 
 @dataclass
@@ -20,18 +24,34 @@ class Filters:
     path: str = ""
     date_from: str = ""
     date_to: str = ""
-    #: year filter for the Changes section only ("" = all years)
+    #: Changes section only: year ("" = all), kinds shown (None = all), whether the selected
+    #: kinds must all be on the same event, and the minimum browser major-version jump for an
+    #: upgrade/downgrade to count (1 = any)
     changes_year: str = ""
+    kinds: frozenset[str] | None = None
+    combine: bool = False
+    min_delta: int = 1
 
     def active(self) -> bool:
         return any((self.session, self.ip, self.path, self.date_from, self.date_to))
 
-    def timeline_qs(self) -> str:
-        """Query string of the timeline filters, so the Changes year links keep them."""
+    def selected_kinds(self) -> frozenset[str]:
+        return ALL_KINDS if self.kinds is None else self.kinds
+
+    def timeline_qs(self, exclude: tuple[str, ...] = ("cy",)) -> str:
+        """Query string of the current filters (timeline + Changes), minus `exclude` — so the year
+        buttons keep the kind/threshold choices and the kind form keeps the year."""
         from urllib.parse import urlencode
-        pairs = [("session", self.session), ("ip", self.ip), ("path", self.path),
-                 ("from", self.date_from), ("to", self.date_to)]
-        return urlencode([(k, v) for k, v in pairs if v])
+        pairs: list[tuple[str, str]] = [("session", self.session), ("ip", self.ip), ("path", self.path),
+                                        ("from", self.date_from), ("to", self.date_to), ("cy", self.changes_year)]
+        if self.kinds is not None:
+            pairs.append(("kf", "1"))
+            pairs.extend(("k", k) for k, _ in CHANGE_KINDS if k in self.kinds)
+        if self.combine:
+            pairs.append(("combine", "1"))
+        if self.min_delta > 1:
+            pairs.append(("delta", str(self.min_delta)))
+        return urlencode([(k, v) for k, v in pairs if v and k not in exclude])
 
 
 @dataclass
@@ -54,6 +74,8 @@ class Row:
     ua_change: str | None = None
     prev_ua_desc: str = ""
     prev_ua: str = ""
+    #: signed browser major-version jump (cur − prev) for an upgrade/downgrade; None when not comparable
+    ua_delta: int | None = None
     #: where the user was on the previous event (the "before" side of a change)
     prev_path: str = ""
     prev_referrer: str = ""
@@ -65,6 +87,8 @@ class Row:
     prev_as_name: str = ""
     #: True = ASN differs from the previous event's; False = same; None = unknown (an IP not enriched)
     asn_changed: bool | None = None
+    #: the change kinds this row carries under the current threshold (what the Kind column shows)
+    kinds: set[str] = field(default_factory=set)
     ip_info: dict[str, Any] = field(default_factory=dict)
     ipqs: dict[str, Any] = field(default_factory=dict)
 
@@ -157,6 +181,7 @@ def build_account_view(db: Database, uuid: str, filters: Filters | None = None) 
                 if change is None and (prev_parsed is None or p is None):
                     change = "major"  # unparsed but different strings: treat as a real change
                 row.ua_change = change
+                row.ua_delta = major_delta(prev_parsed, p) if change in ("minor", "downgrade") else None
                 row.prev_ua = prev_ua
                 row.prev_ua_desc = describe(prev_parsed) if prev_parsed else prev_ua[:60]
         rows.append(row)
@@ -209,6 +234,9 @@ def build_account_view(db: Database, uuid: str, filters: Filters | None = None) 
     all_changes = [r for r in rows if r.ua_change or r.asn_changed or (r.ip_changed and r.asn_changed is None)]
     change_years = sorted({r.day[:4] for r in all_changes}, reverse=True)
     changes = [r for r in all_changes if not filters.changes_year or r.day[:4] == filters.changes_year]
+    for r in changes:
+        r.kinds = row_kinds(r, filters.min_delta)
+    changes = [r for r in changes if change_matches(r, filters)]
     counts = {
         "ua_upgrade": sum(1 for r in changes if r.ua_change == "minor"),
         "ua_downgrade": sum(1 for r in changes if r.ua_change == "downgrade"),
@@ -243,11 +271,46 @@ def build_account_view(db: Database, uuid: str, filters: Filters | None = None) 
         "changes": changes,
         "change_counts": counts,
         "change_years": change_years,
+        "change_kinds": CHANGE_KINDS,
         "ua_change_label": UA_CHANGE_LABEL,
         "pages": pages,
         "membership": [dict(m) for m in membership],
         "filters": filters,
     }
+
+
+def major_delta(prev: Parsed | None, cur: Parsed | None) -> int | None:
+    """cur − prev browser major version, when both parse to numbers and the family is the same."""
+    if not prev or not cur or prev[0] != cur[0]:
+        return None
+    try:
+        return int(cur[1]) - int(prev[1])
+    except ValueError:
+        return None
+
+
+def row_kinds(r: Row, min_delta: int = 1) -> set[str]:
+    """The change kinds a row carries, after the major-version threshold: an upgrade/downgrade
+    whose jump is smaller than `min_delta` majors does not count (150→144 counts at 3; 145→144 not)."""
+    kinds: set[str] = set()
+    if r.ua_change == "major":
+        kinds.add("major")
+    elif r.ua_change in ("minor", "downgrade"):
+        if min_delta <= 1 or (r.ua_delta is not None and abs(r.ua_delta) >= min_delta):
+            kinds.add("upgrade" if r.ua_change == "minor" else "downgrade")
+    if r.asn_changed is True:
+        kinds.add("asn")
+    elif r.ip_changed and r.asn_changed is None:
+        kinds.add("asn_unknown")
+    return kinds
+
+
+def change_matches(r: Row, f: Filters) -> bool:
+    selected = f.selected_kinds()
+    kinds = row_kinds(r, f.min_delta)
+    if f.combine:
+        return bool(selected) and selected <= kinds      # every selected kind on this same event
+    return bool(selected & kinds)                        # any selected kind
 
 
 def ipqs_context(db: Database, uuid: str, ip: str) -> tuple[str | None, str | None]:

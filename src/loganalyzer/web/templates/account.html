@@ -87,7 +87,7 @@
 
 <div class="card mb-3" id="changes">
   <div class="card-header">
-    <h3 class="card-title">Changes — {{ v.changes|length }}{% if v.filters.changes_year %} of {{ v.change_counts.total }}{% endif %} event(s) where the user agent or the ASN changed</h3>
+    <h3 class="card-title">Changes — {{ v.changes|length }}{% if v.changes|length != v.change_counts.total %} of {{ v.change_counts.total }}{% endif %} event(s) where the user agent or the ASN changed</h3>
     <div class="ms-auto d-flex gap-3 align-items-center small">
       {% if v.change_years|length > 1 or v.filters.changes_year %}
       {% set base = '/accounts/' ~ v.uuid ~ '?' ~ v.filters.timeline_qs() %}{% set sep = '&' if v.filters.timeline_qs() else '' %}
@@ -108,6 +108,23 @@
       </div>
     </div>
   </div>
+  <div class="card-body border-bottom py-2">
+    <form method="get" action="/accounts/{{ v.uuid }}#changes" class="d-flex flex-wrap align-items-center gap-3 small m-0">
+      {% for k, label in [('session', v.filters.session), ('ip', v.filters.ip), ('path', v.filters.path), ('from', v.filters.date_from), ('to', v.filters.date_to), ('cy', v.filters.changes_year)] %}{% if label %}<input type="hidden" name="{{ k }}" value="{{ label }}">{% endif %}{% endfor %}
+      <input type="hidden" name="kf" value="1">
+      <span class="text-secondary">Show:</span>
+      {% for key, label in v.change_kinds %}
+      <label class="form-check form-check-inline m-0"><input class="form-check-input" type="checkbox" name="k" value="{{ key }}" {% if key in v.filters.selected_kinds() %}checked{% endif %}><span class="form-check-label">{{ label }}</span></label>
+      {% endfor %}
+      <label class="form-check form-switch m-0 ms-2" title="only events that carry every checked kind at once"><input class="form-check-input" type="checkbox" name="combine" value="1" {% if v.filters.combine %}checked{% endif %}><span class="form-check-label">all checked kinds on the same event</span></label>
+      <label class="d-flex align-items-center gap-1 m-0 ms-2" title="an upgrade/downgrade counts only if the browser major version jumped by at least this many (150→144 = 6)">
+        <span class="text-secondary">min major-version jump</span>
+        <input class="form-control form-control-sm" type="number" name="delta" min="1" max="999" value="{{ v.filters.min_delta }}" style="width:5rem">
+      </label>
+      <button class="btn btn-sm btn-primary" type="submit">Apply</button>
+      <a class="btn btn-sm btn-link" href="/accounts/{{ v.uuid }}?{{ v.filters.timeline_qs(exclude=('kf','k','combine','delta')) }}#changes">reset</a>
+    </form>
+  </div>
   {% if v.changes %}
   <div class="table-responsive">
     <table class="table table-sm card-table table-vcenter small changes">
@@ -116,12 +133,12 @@
       {% for r in v.changes %}
         <tr class="{% if r.both %}table-active{% endif %}">
           <td class="text-nowrap">
-            {% if r.ua_change == 'downgrade' %}<div><span class="badge bg-red-lt">UA downgrade</span></div>
-            {% elif r.ua_change == 'minor' %}<div><span class="badge bg-azure-lt">UA upgrade</span></div>
-            {% elif r.ua_change == 'major' %}<div><span class="badge bg-orange-lt">browser/OS change</span></div>{% endif %}
-            {% if r.asn_changed is true %}<div><span class="badge bg-yellow-lt">ASN change</span></div>
-            {% elif r.ip_changed and r.asn_changed is none %}<div><span class="badge bg-secondary-lt" title="enrich the IPs to resolve">IP change, ASN ?</span></div>{% endif %}
-            {% if r.both %}<div><span class="badge bg-purple-lt">both</span></div>{% endif %}
+            {% if 'downgrade' in r.kinds %}<div><span class="badge bg-red-lt">UA downgrade</span></div>{% endif %}
+            {% if 'upgrade' in r.kinds %}<div><span class="badge bg-azure-lt">UA upgrade</span></div>{% endif %}
+            {% if 'major' in r.kinds %}<div><span class="badge bg-orange-lt">browser/OS change</span></div>{% endif %}
+            {% if 'asn' in r.kinds %}<div><span class="badge bg-yellow-lt">ASN change</span></div>{% endif %}
+            {% if 'asn_unknown' in r.kinds %}<div><span class="badge bg-secondary-lt" title="enrich the IPs to resolve">IP change, ASN ?</span></div>{% endif %}
+            {% if r.both and ('downgrade' in r.kinds or 'upgrade' in r.kinds or 'major' in r.kinds) %}<div><span class="badge bg-purple-lt">both</span></div>{% endif %}
           </td>
           <td class="change-side">
             <div class="font-monospace text-secondary">{{ r.prev_time }} · session {{ r.prev_session_short }}</div>
@@ -133,14 +150,14 @@
             <div class="font-monospace text-secondary">{{ r.created_at }} · session {{ r.session_short }}{% if r.session_short != r.prev_session_short %} <span class="badge bg-secondary-lt">new session</span>{% endif %}</div>
             <div><b>went to</b> <span class="font-monospace text-break">{{ r.path or '/' }}</span>{% if r.referrer %} <span class="text-secondary">referred from</span> <span class="font-monospace text-break">{{ r.referrer }}</span>{% endif %}</div>
             <div><b>IP</b> <span class="font-monospace">{{ r.ip }}</span>{% if r.asn %} AS{{ r.asn }} {{ r.as_name }}{% endif %}{% if r.asn_changed is true %} <span class="badge bg-yellow-lt">changed</span>{% elif r.ip_changed %} <span class="badge bg-secondary-lt">IP changed</span>{% endif %}</div>
-            <div><b>UA</b> <span class="font-monospace text-break">{{ r.ua }}</span>{% if r.ua_change %} <span class="badge {% if r.ua_change == 'downgrade' %}bg-red-lt{% elif r.ua_change == 'minor' %}bg-azure-lt{% else %}bg-orange-lt{% endif %}">{{ v.ua_change_label[r.ua_change] }}</span>{% endif %}</div>
+            <div><b>UA</b> <span class="font-monospace text-break">{{ r.ua }}</span>{% if r.ua_change %} <span class="badge {% if r.ua_change == 'downgrade' %}bg-red-lt{% elif r.ua_change == 'minor' %}bg-azure-lt{% else %}bg-orange-lt{% endif %}">{{ v.ua_change_label[r.ua_change] }}{% if r.ua_delta is not none %} {{ '%+d' % r.ua_delta }} major{% endif %}</span>{% endif %}</div>
           </td>
         </tr>
       {% endfor %}
       </tbody>
     </table>
   </div>
-  {% else %}<div class="card-body text-secondary">No user-agent or ASN changes{% if v.filters.changes_year %} in {{ v.filters.changes_year }}{% endif %} in this account's events.</div>{% endif %}
+  {% else %}<div class="card-body text-secondary">No matching changes{% if v.filters.changes_year %} in {{ v.filters.changes_year }}{% endif %}{% if v.change_counts.total %} ({{ v.change_counts.total }} in total — widen the filter above){% endif %}.</div>{% endif %}
 </div>
 
 <div class="card mb-3">

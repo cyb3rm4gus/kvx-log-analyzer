@@ -98,6 +98,39 @@ def test_changes_section_and_batch_flags(db: Database):
     assert flags["00000000-0000-4000-8000-000000000000"] == {"ua_downgrade": 0, "ua_other": 0, "asn": 0, "both": 0}
 
 
+def test_change_kind_filters_and_major_threshold(db: Database):
+    from loganalyzer.timeline import change_matches, row_kinds
+    chrome = lambda major: f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36"  # noqa: E731
+    events = [ev("2026-01-01 00:00:00", ip="203.0.113.10", ua=chrome(150)),
+              ev("2026-01-02 00:00:00", ip="203.0.113.10", ua=chrome(144)),   # −6: downgrade, no ASN change
+              ev("2026-01-03 00:00:00", ip="198.51.100.7", ua=chrome(145)),   # +1 upgrade + ASN change
+              ev("2026-01-04 00:00:00", ip="198.51.100.7", ua=chrome(144))]   # −1 downgrade
+    db.create_batch("b1", [U1]); db.insert_events_page("b1", U1, list(reversed(events)), 1, has_more=False)
+    db.save_ip("203.0.113.10", asn=1, as_name="A"); db.save_ip("198.51.100.7", asn=2, as_name="B")
+    v = build_account_view(db, U1)
+    deltas = [(c.day, c.ua_change, c.ua_delta, c.asn_changed) for c in v["changes"]]
+    assert deltas == [("2026-01-02", "downgrade", -6, False), ("2026-01-03", "minor", 1, True), ("2026-01-04", "downgrade", -1, False)]
+    # threshold 3: the −6 downgrade counts, the −1 does not; the +1 upgrade row survives only via its ASN change
+    v = build_account_view(db, U1, Filters(min_delta=3))
+    assert [(c.day, sorted(row_kinds(c, 3))) for c in v["changes"]] == [("2026-01-02", ["downgrade"]), ("2026-01-03", ["asn"])]
+    # only downgrades ≥ 3 majors
+    v = build_account_view(db, U1, Filters(kinds=frozenset({"downgrade"}), min_delta=3))
+    assert [c.day for c in v["changes"]] == ["2026-01-02"]
+    # downgrade + ASN change on the same event: none here; any-of: three rows
+    assert build_account_view(db, U1, Filters(kinds=frozenset({"downgrade", "asn"}), combine=True))["changes"] == []
+    assert len(build_account_view(db, U1, Filters(kinds=frozenset({"downgrade", "asn"})))["changes"]) == 3
+    # upgrade + ASN on the same event: the 01-03 row
+    v = build_account_view(db, U1, Filters(kinds=frozenset({"upgrade", "asn"}), combine=True))
+    assert [c.day for c in v["changes"]] == ["2026-01-03"]
+    assert v["change_counts"]["both"] == 1 and v["change_counts"]["total"] == 3
+    # nothing checked → nothing shown; query-string round trip keeps every choice
+    assert build_account_view(db, U1, Filters(kinds=frozenset()))["changes"] == []
+    f = Filters(ip="1.2.3.4", changes_year="2026", kinds=frozenset({"downgrade", "asn"}), combine=True, min_delta=3)
+    assert f.timeline_qs() == "ip=1.2.3.4&kf=1&k=downgrade&k=asn&combine=1&delta=3"
+    assert f.timeline_qs(exclude=("kf", "k", "combine", "delta")) == "ip=1.2.3.4&cy=2026"
+    assert change_matches(v["changes"][0], Filters(kinds=frozenset({"asn"})))
+
+
 def test_url_path():
     assert url_path("https://platform.example/deposit?amt=10") == "/deposit?amt=10"
     assert url_path("https://platform.example") == "/"

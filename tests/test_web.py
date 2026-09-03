@@ -109,8 +109,25 @@ def test_changes_section_and_batch_downgrade_flag(client, db):
     assert "AS1 ONE" in page and "AS2 TWO" in page and 'badge bg-purple-lt">both' in page
     assert "on page" in page and "went to" in page and "/lobby" in page      # before/after with pages
     # year filter: 2026 keeps it, 2024 hides it, timeline filters are preserved in the year links
-    assert "Changes — 1 of 1" in client.get(f"/accounts/{U1}?cy=2026").text
-    assert "No user-agent or ASN changes in 2024" in client.get(f"/accounts/{U1}?cy=2024").text
+    assert "Changes — 1 event(s)" in client.get(f"/accounts/{U1}?cy=2026").text
+    assert "No matching changes in 2024 (1 in total" in client.get(f"/accounts/{U1}?cy=2024").text
+    # kind checkboxes: only-ASN hides nothing here (row has both), only-upgrade hides it, combine needs both kinds
+    assert "Changes — 1 event(s)" in client.get(f"/accounts/{U1}?kf=1&k=asn").text
+    assert "No matching changes" in client.get(f"/accounts/{U1}?kf=1&k=upgrade").text
+    assert "Changes — 1 event(s)" in client.get(f"/accounts/{U1}?kf=1&k=downgrade&k=asn&combine=1").text
+    assert "No matching changes" in client.get(f"/accounts/{U1}?kf=1&k=downgrade&k=major&combine=1").text
+    # threshold: 127→126 is a 1-major jump; delta=3 hides the downgrade but the ASN change still shows
+    page = client.get(f"/accounts/{U1}?kf=1&k=downgrade&delta=3").text
+    assert "No matching changes" in page
+    page = client.get(f"/accounts/{U1}?delta=3").text        # row stays (ASN change) — Kind column drops the sub-threshold downgrade
+    assert "Changes — 1 event(s)" in page and 'bg-yellow-lt">ASN change</span>' in page
+    assert 'bg-red-lt">UA downgrade</span>' not in page and "downgrade -1 major" in page   # fact kept on the After side
+    assert "-1 major" in client.get(f"/accounts/{U1}").text
+    # the form keeps its state and the year links keep the kind choices
+    page = client.get(f"/accounts/{U1}?kf=1&k=downgrade&combine=1&delta=3&cy=2026").text
+    assert 'value="downgrade" checked' in page and 'name="combine" value="1" checked' in page and 'value="3"' in page
+    assert 'name="cy" value="2026"' in page                                     # the kind form keeps the year
+    assert "kf=1&amp;k=downgrade&amp;combine=1&amp;delta=3#changes" in page     # the "all years" button keeps the kinds
     assert "cy=2026#changes" in client.get(f"/accounts/{U1}?cy=2024&ip=198.51.100.7").text
     batch = client.get("/batches/b1").text
     assert "UA downgrade 1" in batch and "UA+ASN 1" in batch

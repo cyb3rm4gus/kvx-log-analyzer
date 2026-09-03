@@ -16,7 +16,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Stre
 from fastapi.templating import Jinja2Templates
 
 from ..enrich.ipqs import IPQSError
-from ..timeline import Filters, batch_flags, build_account_view, ipqs_context
+from ..timeline import ALL_KINDS, Filters, batch_flags, build_account_view, ipqs_context
 from ..uuids import UUID_RE, parse_uuids
 
 log = logging.getLogger(__name__)
@@ -200,9 +200,13 @@ async def account_page(request: Request, uuid: str) -> Any:
     if not UUID_RE.match(uuid):
         return render(request, "error.html", message="Not a uuid.", status=404)
     qp = request.query_params
+    kinds = frozenset(k for k in qp.getlist("k") if k in ALL_KINDS) if qp.get("kf") == "1" else None
+    delta_raw = qp.get("delta", "")
     filters = Filters(session=qp.get("session", ""), ip=qp.get("ip", ""), path=qp.get("path", ""),
                       date_from=qp.get("from", ""), date_to=qp.get("to", ""),
-                      changes_year=qp.get("cy", "")[:4] if qp.get("cy", "").isdigit() else "")
+                      changes_year=qp.get("cy", "")[:4] if qp.get("cy", "").isdigit() else "",
+                      kinds=kinds, combine=qp.get("combine") == "1",
+                      min_delta=max(1, min(999, int(delta_raw))) if delta_raw.isdigit() else 1)
     view = build_account_view(st.db, uuid, filters)
     run = st.ipqs_runs.get(uuid)
     spent = st.db.ipqs_spent_today()
