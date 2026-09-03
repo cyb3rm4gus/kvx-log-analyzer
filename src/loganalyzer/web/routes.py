@@ -201,7 +201,8 @@ async def account_page(request: Request, uuid: str) -> Any:
         return render(request, "error.html", message="Not a uuid.", status=404)
     qp = request.query_params
     filters = Filters(session=qp.get("session", ""), ip=qp.get("ip", ""), path=qp.get("path", ""),
-                      date_from=qp.get("from", ""), date_to=qp.get("to", ""))
+                      date_from=qp.get("from", ""), date_to=qp.get("to", ""),
+                      changes_year=qp.get("cy", "")[:4] if qp.get("cy", "").isdigit() else "")
     view = build_account_view(st.db, uuid, filters)
     run = st.ipqs_runs.get(uuid)
     spent = st.db.ipqs_spent_today()

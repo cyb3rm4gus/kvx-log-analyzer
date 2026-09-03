@@ -76,9 +76,23 @@ def test_changes_section_and_batch_flags(db: Database):
                      ("2026-08-04", "major", None, False)]
     both = v["changes"][0]
     assert both.prev_ua == UA_CHROME_1 and both.ua == UA_CHROME_2       # full strings, not descriptions
+    assert both.prev_path == "/lobby" and both.prev_time == "2026-08-01 10:00:00" and both.prev_session_short == "sess-aaa"
     assert (both.prev_asn, both.asn) == (64500, 64501) and both.as_name == "AS-B"
-    assert v["change_counts"] == {"ua_upgrade": 1, "ua_downgrade": 1, "ua_major": 1, "asn": 1, "asn_unknown": 1, "both": 1}
+    assert v["change_counts"] == {"ua_upgrade": 1, "ua_downgrade": 1, "ua_major": 1, "asn": 1, "asn_unknown": 1, "both": 1, "total": 3}
     assert len(db.ua_rows([UA_CHROME_1, UA_CHROME_2, UA_IPHONE])) == 3  # parsed and saved on the way
+    assert v["change_years"] == ["2026"] and v["change_counts"]["total"] == 3
+    # year filter applies to the Changes section only
+    db.insert_events_page("b1", U1, [ev("2025-12-31 23:00:00", ip="192.0.2.9", ua=UA_CHROME_1,
+                                        url="https://platform.example/old", referrer="https://ads.example/x")], 2, has_more=False)
+    # the 2025 event is now the earliest: it has no predecessor, so it is not itself a change —
+    # the change it causes (IP → ASN unknown) lands on the first 2026 row
+    v = build_account_view(db, U1, Filters(changes_year="2025"))
+    assert v["change_years"] == ["2026"] and v["events"] == 5
+    assert v["changes"] == [] and v["change_counts"]["total"] == 4
+    v = build_account_view(db, U1, Filters(changes_year="2026"))
+    assert all(c.day[:4] == "2026" for c in v["changes"]) and len(v["changes"]) == 4
+    first = v["changes"][0]           # 2026-08-01: came from the 2025 event on /old, referred from ads
+    assert first.prev_path == "/old" and first.prev_referrer == "https://ads.example/x"
     flags = batch_flags(db, [U1, "00000000-0000-4000-8000-000000000000"])
     assert flags[U1] == {"ua_downgrade": 1, "ua_other": 2, "asn": 1, "both": 1}
     assert flags["00000000-0000-4000-8000-000000000000"] == {"ua_downgrade": 0, "ua_other": 0, "asn": 0, "both": 0}

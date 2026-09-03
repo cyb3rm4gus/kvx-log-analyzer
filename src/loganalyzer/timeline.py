@@ -20,9 +20,18 @@ class Filters:
     path: str = ""
     date_from: str = ""
     date_to: str = ""
+    #: year filter for the Changes section only ("" = all years)
+    changes_year: str = ""
 
     def active(self) -> bool:
         return any((self.session, self.ip, self.path, self.date_from, self.date_to))
+
+    def timeline_qs(self) -> str:
+        """Query string of the timeline filters, so the Changes year links keep them."""
+        from urllib.parse import urlencode
+        pairs = [("session", self.session), ("ip", self.ip), ("path", self.path),
+                 ("from", self.date_from), ("to", self.date_to)]
+        return urlencode([(k, v) for k, v in pairs if v])
 
 
 @dataclass
@@ -45,6 +54,11 @@ class Row:
     ua_change: str | None = None
     prev_ua_desc: str = ""
     prev_ua: str = ""
+    #: where the user was on the previous event (the "before" side of a change)
+    prev_path: str = ""
+    prev_referrer: str = ""
+    prev_session_short: str = ""
+    prev_time: str = ""
     asn: int | None = None
     prev_asn: int | None = None
     as_name: str = ""
@@ -126,6 +140,9 @@ def build_account_view(db: Database, uuid: str, filters: Filters | None = None) 
         )
         row.asn, row.as_name = asn_of(ip)
         if rows:
+            prev = rows[-1]
+            row.prev_path, row.prev_referrer = prev.path, prev.referrer
+            row.prev_session_short, row.prev_time = prev.session_short, prev.created_at
             if ip != prev_ip:
                 row.ip_changed, row.prev_ip = True, prev_ip
                 row.prev_asn, row.prev_as_name = asn_of(prev_ip)
@@ -189,14 +206,17 @@ def build_account_view(db: Database, uuid: str, filters: Filters | None = None) 
     ]
     # the dedicated "changes" section: every UA change, every ASN change (or IP change whose ASN is
     # not known yet), and the combination — chronological, with the full UA strings
-    changes = [r for r in rows if r.ua_change or r.asn_changed or (r.ip_changed and r.asn_changed is None)]
+    all_changes = [r for r in rows if r.ua_change or r.asn_changed or (r.ip_changed and r.asn_changed is None)]
+    change_years = sorted({r.day[:4] for r in all_changes}, reverse=True)
+    changes = [r for r in all_changes if not filters.changes_year or r.day[:4] == filters.changes_year]
     counts = {
-        "ua_upgrade": sum(1 for r in rows if r.ua_change == "minor"),
-        "ua_downgrade": sum(1 for r in rows if r.ua_change == "downgrade"),
-        "ua_major": sum(1 for r in rows if r.ua_change == "major"),
-        "asn": sum(1 for r in rows if r.asn_changed is True),
-        "asn_unknown": sum(1 for r in rows if r.ip_changed and r.asn_changed is None),
-        "both": sum(1 for r in rows if r.both),
+        "ua_upgrade": sum(1 for r in changes if r.ua_change == "minor"),
+        "ua_downgrade": sum(1 for r in changes if r.ua_change == "downgrade"),
+        "ua_major": sum(1 for r in changes if r.ua_change == "major"),
+        "asn": sum(1 for r in changes if r.asn_changed is True),
+        "asn_unknown": sum(1 for r in changes if r.ip_changed and r.asn_changed is None),
+        "both": sum(1 for r in changes if r.both),
+        "total": len(all_changes),
     }
     membership = db.query(
         "SELECT batch_id, status, pages_done, has_more, error FROM batch_uuids WHERE uuid = ? ORDER BY updated_at DESC",
@@ -222,6 +242,7 @@ def build_account_view(db: Database, uuid: str, filters: Filters | None = None) 
         "days": days,
         "changes": changes,
         "change_counts": counts,
+        "change_years": change_years,
         "ua_change_label": UA_CHANGE_LABEL,
         "pages": pages,
         "membership": [dict(m) for m in membership],

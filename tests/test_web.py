@@ -105,8 +105,13 @@ def test_changes_section_and_batch_downgrade_flag(client, db):
     db.save_ip("203.0.113.10", asn=1, as_name="ONE"); db.save_ip("198.51.100.7", asn=2, as_name="TWO")
     page = client.get(f"/accounts/{U1}").text
     assert "Changes — 1 event(s)" in page and "UA downgrade" in page and "ASN change" in page
-    assert f"from: {UA_CHROME_2}" in page and f"to: {UA_CHROME_1}" in page      # full UA lines
+    assert page.count(UA_CHROME_2) >= 2 and page.count(UA_CHROME_1) >= 2      # full UA lines, before and after
     assert "AS1 ONE" in page and "AS2 TWO" in page and 'badge bg-purple-lt">both' in page
+    assert "on page" in page and "went to" in page and "/lobby" in page      # before/after with pages
+    # year filter: 2026 keeps it, 2024 hides it, timeline filters are preserved in the year links
+    assert "Changes — 1 of 1" in client.get(f"/accounts/{U1}?cy=2026").text
+    assert "No user-agent or ASN changes in 2024" in client.get(f"/accounts/{U1}?cy=2024").text
+    assert "cy=2026#changes" in client.get(f"/accounts/{U1}?cy=2024&ip=198.51.100.7").text
     batch = client.get("/batches/b1").text
     assert "UA downgrade 1" in batch and "UA+ASN 1" in batch
     status = client.get("/batches/b1/status").json()
