@@ -16,7 +16,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Stre
 from fastapi.templating import Jinja2Templates
 
 from ..enrich.ipqs import IPQSError
-from ..timeline import Filters, build_account_view, ipqs_context
+from ..timeline import Filters, batch_flags, build_account_view, ipqs_context
 from ..uuids import UUID_RE, parse_uuids
 
 log = logging.getLogger(__name__)
@@ -98,9 +98,12 @@ async def batch_page(request: Request, batch_id: str) -> Any:
         # process restarted mid-batch: resume from the committed pages
         st.runner.start(batch_id)
         live = True
-    ip_counts = st.db.distinct_ip_counts([r["uuid"] for r in rows])
+    uuids = [r["uuid"] for r in rows]
+    ip_counts = st.db.distinct_ip_counts(uuids)
+    flags = batch_flags(st.db, uuids)
     failed = sum(1 for r in rows if r["status"] == "failed")
-    return render(request, "batch.html", batch=batch, rows=rows, live=live, ip_counts=ip_counts, failed=failed,
+    return render(request, "batch.html", batch=batch, rows=rows, live=live, ip_counts=ip_counts, flags=flags,
+                  failed=failed,
                   rejected=request.query_params.get("rejected"),
                   duplicates=request.query_params.get("duplicates"),
                   truncated=request.query_params.get("truncated"))
@@ -128,6 +131,7 @@ async def batch_status(request: Request, batch_id: str) -> JSONResponse:
     rows = st.db.batch_uuids(batch_id)
     uuids = [r["uuid"] for r in rows]
     ip_counts = st.db.distinct_ip_counts(uuids)
+    flags = batch_flags(st.db, uuids)
     job = st.runner.jobs.get(batch_id)
     live = job is not None and not job.done
     all_terminal = all(r["status"] in TERMINAL for r in rows)
@@ -146,6 +150,7 @@ async def batch_status(request: Request, batch_id: str) -> JSONResponse:
         "enrich": enrich,
         "uuids": [{"uuid": r["uuid"], "status": r["status"], "pages": r["pages_done"],
                    "events": r["events"], "ips": ip_counts.get(r["uuid"], 0),
+                   "flags": flags.get(r["uuid"], {}),
                    "error": r["error"] or ""} for r in rows],
         "log": [p.message for p in (job.events[-200:] if job else [])],
         "badge": STATUS_BADGE,

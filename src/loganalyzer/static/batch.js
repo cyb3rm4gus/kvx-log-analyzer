@@ -9,6 +9,14 @@
   var tbody = document.getElementById("uuid-rows");
   var phaseEl = document.getElementById("phase");
   var logEl = document.getElementById("log");
+  var flags = function (f) {
+    var out = "";
+    if (f.ua_downgrade) { out += '<span class="badge bg-red-lt">UA downgrade ' + f.ua_downgrade + '</span> '; }
+    if (f.both) { out += '<span class="badge bg-purple-lt">UA+ASN ' + f.both + '</span> '; }
+    if (f.asn) { out += '<span class="badge bg-yellow-lt">ASN ' + f.asn + '</span> '; }
+    if (f.ua_other) { out += '<span class="badge bg-azure-lt">UA ' + f.ua_other + '</span>'; }
+    return out;
+  };
   var esc = function (s) { var d = document.createElement("div"); d.textContent = s == null ? "" : s; return d.innerHTML; };
 
   function draw(d) {
@@ -22,6 +30,7 @@
           '<td class="text-end">' + pages + '</td>' +
           '<td class="text-end">' + u.events + '</td>' +
           '<td class="text-end">' + u.ips + '</td>' +
+          '<td class="text-nowrap">' + flags(u.flags || {}) + '</td>' +
           '<td class="text-secondary small">' + esc(u.error) + '</td></tr>';
       }).join("");
     }

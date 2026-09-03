@@ -8,7 +8,9 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from .db import Database
-from .enrich.ua import Parsed, describe, ua_change
+from .enrich.ua import Parsed, describe, parse_ua, ua_change
+
+UA_CHANGE_LABEL = {"minor": "upgrade", "downgrade": "downgrade", "major": "browser/OS change"}
 
 
 @dataclass
@@ -42,8 +44,19 @@ class Row:
     prev_ip: str = ""
     ua_change: str | None = None
     prev_ua_desc: str = ""
+    prev_ua: str = ""
+    asn: int | None = None
+    prev_asn: int | None = None
+    as_name: str = ""
+    prev_as_name: str = ""
+    #: True = ASN differs from the previous event's; False = same; None = unknown (an IP not enriched)
+    asn_changed: bool | None = None
     ip_info: dict[str, Any] = field(default_factory=dict)
     ipqs: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def both(self) -> bool:
+        return bool(self.ua_change) and self.asn_changed is True
 
 
 def url_path(url: str) -> str:
@@ -73,11 +86,23 @@ def build_account_view(db: Database, uuid: str, filters: Filters | None = None) 
     ua_info = db.ua_rows(uas)
 
     def parsed(ua: str) -> Parsed | None:
+        if not ua:
+            return None
         r = ua_info.get(ua)
         if not r:
-            return None
+            # an existing batch whose enrichment pass has not parsed this UA yet: parse now, keep it
+            p = parse_ua(ua)
+            db.save_ua(ua, *p)
+            ua_info[ua] = {"browser": p[0], "browser_major": p[1], "os": p[2], "os_version": p[3], "device": p[4]}
+            return p
         return (r["browser"] or "Other", r["browser_major"] or "", r["os"] or "Other",
                 r["os_version"] or "", r["device"] or "Other")
+
+    def asn_of(ip: str) -> tuple[int | None, str]:
+        r = ip_info.get(ip)
+        if not r or r["asn"] is None:
+            return None, ""
+        return int(r["asn"]), r["as_name"] or ""
 
     rows: list[Row] = []
     prev_ip = prev_ua = ""
@@ -99,14 +124,23 @@ def build_account_view(db: Database, uuid: str, filters: Filters | None = None) 
             click_id=e["click_id"],
             ip_info=_row_dict(ip_info.get(ip)), ipqs=_row_dict(ipqs.get(ip)),
         )
+        row.asn, row.as_name = asn_of(ip)
         if rows:
             if ip != prev_ip:
                 row.ip_changed, row.prev_ip = True, prev_ip
+                row.prev_asn, row.prev_as_name = asn_of(prev_ip)
+                if row.asn is None or row.prev_asn is None:
+                    row.asn_changed = None          # cannot say until both IPs are enriched
+                else:
+                    row.asn_changed = row.asn != row.prev_asn
+            else:
+                row.asn_changed = False
             if ua != prev_ua:
                 change = ua_change(prev_parsed, p)
                 if change is None and (prev_parsed is None or p is None):
                     change = "major"  # unparsed but different strings: treat as a real change
                 row.ua_change = change
+                row.prev_ua = prev_ua
                 row.prev_ua_desc = describe(prev_parsed) if prev_parsed else prev_ua[:60]
         rows.append(row)
         prev_ip, prev_ua, prev_parsed = ip, ua, p
@@ -153,6 +187,17 @@ def build_account_view(db: Database, uuid: str, filters: Filters | None = None) 
          "desc": describe(parsed(ua)) if parsed(ua) else ua}
         for ua, n in ua_counter.most_common()
     ]
+    # the dedicated "changes" section: every UA change, every ASN change (or IP change whose ASN is
+    # not known yet), and the combination — chronological, with the full UA strings
+    changes = [r for r in rows if r.ua_change or r.asn_changed or (r.ip_changed and r.asn_changed is None)]
+    counts = {
+        "ua_upgrade": sum(1 for r in rows if r.ua_change == "minor"),
+        "ua_downgrade": sum(1 for r in rows if r.ua_change == "downgrade"),
+        "ua_major": sum(1 for r in rows if r.ua_change == "major"),
+        "asn": sum(1 for r in rows if r.asn_changed is True),
+        "asn_unknown": sum(1 for r in rows if r.ip_changed and r.asn_changed is None),
+        "both": sum(1 for r in rows if r.both),
+    }
     membership = db.query(
         "SELECT batch_id, status, pages_done, has_more, error FROM batch_uuids WHERE uuid = ? ORDER BY updated_at DESC",
         (uuid,),
@@ -175,6 +220,9 @@ def build_account_view(db: Database, uuid: str, filters: Filters | None = None) 
         "ipqs_cached": sum(1 for ip in ips if ip in ipqs),
         "ipqs_pending": [ip for ip in ips if ip not in ipqs],
         "days": days,
+        "changes": changes,
+        "change_counts": counts,
+        "ua_change_label": UA_CHANGE_LABEL,
         "pages": pages,
         "membership": [dict(m) for m in membership],
         "filters": filters,
@@ -191,3 +239,69 @@ def ipqs_context(db: Database, uuid: str, ip: str) -> tuple[str | None, str | No
     if not r:
         return None, None
     return (r["user_agent"] or None), (r["language"] or None)
+
+
+def batch_flags(db: Database, uuids: list[str]) -> dict[str, dict[str, int]]:
+    """Per-uuid change counts for the batch table (UA downgrades, other UA changes, ASN changes,
+    both-at-once), computed in one pass over the batch's stored events. Works on an existing
+    batch: UAs not yet parsed by the enrichment pass are parsed and saved on the way."""
+    if not uuids:
+        return {}
+    marks = ",".join("?" * len(uuids))
+    rows = db.query(
+        f"""SELECT player_uuid, created_at, frontend_session_uuid, user_agent, ip_address FROM events
+            WHERE player_uuid IN ({marks}) ORDER BY player_uuid, created_at, frontend_session_uuid, rowid""",
+        uuids,
+    )
+    uas = list({r["user_agent"] for r in rows if r["user_agent"]})
+    ips = list({r["ip_address"] for r in rows if r["ip_address"]})
+    ua_info = db.ua_rows(uas)
+    ip_info = db.ip_rows(ips)
+    parsed_cache: dict[str, Parsed | None] = {}
+
+    def parsed(ua: str) -> Parsed | None:
+        if not ua:
+            return None
+        if ua in parsed_cache:
+            return parsed_cache[ua]
+        r = ua_info.get(ua)
+        if r:
+            p: Parsed = (r["browser"] or "Other", r["browser_major"] or "", r["os"] or "Other",
+                         r["os_version"] or "", r["device"] or "Other")
+        else:
+            p = parse_ua(ua)
+            db.save_ua(ua, *p)
+        parsed_cache[ua] = p
+        return p
+
+    def asn(ip: str) -> int | None:
+        r = ip_info.get(ip)
+        return None if not r or r["asn"] is None else int(r["asn"])
+
+    out: dict[str, dict[str, int]] = {u: {"ua_downgrade": 0, "ua_other": 0, "asn": 0, "both": 0} for u in uuids}
+    cur = None
+    prev_ua = prev_ip = ""
+    for r in rows:
+        u = r["player_uuid"]
+        if u != cur:
+            cur, prev_ua, prev_ip = u, r["user_agent"], r["ip_address"]
+            continue
+        ua, ip = r["user_agent"], r["ip_address"]
+        change = None
+        if ua != prev_ua:
+            change = ua_change(parsed(prev_ua), parsed(ua)) or "major"
+        a_changed = False
+        if ip != prev_ip:
+            a, b = asn(prev_ip), asn(ip)
+            a_changed = a is not None and b is not None and a != b
+        f = out[u]
+        if change == "downgrade":
+            f["ua_downgrade"] += 1
+        elif change:
+            f["ua_other"] += 1
+        if a_changed:
+            f["asn"] += 1
+        if change and a_changed:
+            f["both"] += 1
+        prev_ua, prev_ip = ua, ip
+    return out

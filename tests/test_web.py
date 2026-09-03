@@ -96,6 +96,23 @@ def test_status_endpoint_shows_done_uuids_during_enrichment(app, client, db):
     assert s["log"] == ["enrichment: 1 of 2 IPs"]
 
 
+def test_changes_section_and_batch_downgrade_flag(client, db):
+    from tests.conftest import UA_CHROME_1, UA_CHROME_2
+    events = [ev("2026-08-01 10:00:00", ip="203.0.113.10", ua=UA_CHROME_2),
+              ev("2026-08-02 10:00:00", ip="198.51.100.7", ua=UA_CHROME_1)]   # 127 → 126 + new IP
+    db.create_batch("b1", [U1]); db.set_batch_status("b1", "done")
+    db.insert_events_page("b1", U1, list(reversed(events)), 1, has_more=False)
+    db.save_ip("203.0.113.10", asn=1, as_name="ONE"); db.save_ip("198.51.100.7", asn=2, as_name="TWO")
+    page = client.get(f"/accounts/{U1}").text
+    assert "Changes — 1 event(s)" in page and "UA downgrade" in page and "ASN change" in page
+    assert f"from: {UA_CHROME_2}" in page and f"to: {UA_CHROME_1}" in page      # full UA lines
+    assert "AS1 ONE" in page and "AS2 TWO" in page and 'badge bg-purple-lt">both' in page
+    batch = client.get("/batches/b1").text
+    assert "UA downgrade 1" in batch and "UA+ASN 1" in batch
+    status = client.get("/batches/b1/status").json()
+    assert status["uuids"][0]["flags"] == {"ua_downgrade": 1, "ua_other": 0, "asn": 1, "both": 1}
+
+
 def test_native_tabler_badges_only(client, db):
     db.create_batch("b1", [U1]); db.set_batch_status("b1", "done")
     db.set_uuid_status("b1", U1, "done")

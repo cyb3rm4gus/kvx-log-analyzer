@@ -1,6 +1,6 @@
 from loganalyzer.db import Database
 from loganalyzer.enrich.ua import parse_ua
-from loganalyzer.timeline import Filters, build_account_view, ipqs_context, url_path
+from loganalyzer.timeline import Filters, batch_flags, build_account_view, ipqs_context, url_path
 from tests.conftest import U1, UA_CHROME_1, UA_CHROME_2, UA_IPHONE, ev, sample_events
 
 
@@ -54,6 +54,34 @@ def test_filters_keep_change_context(db: Database):
     assert v["shown"] == 1
     v = build_account_view(db, U1, Filters(session="sess-aaaa-1"))
     assert v["shown"] == 2
+
+
+def test_changes_section_and_batch_flags(db: Database):
+    # chronological: Chrome126@IP-A(AS1) → Chrome127@IP-B(AS2) (upgrade + ASN change = both)
+    # → Chrome126@IP-B (downgrade, no ASN change) → iPhone@IP-C (ASN unknown: not enriched)
+    events = [
+        ev("2026-08-01 10:00:00", ip="203.0.113.10", ua=UA_CHROME_1),
+        ev("2026-08-02 10:00:00", ip="198.51.100.7", ua=UA_CHROME_2),
+        ev("2026-08-03 10:00:00", ip="198.51.100.7", ua=UA_CHROME_1),
+        ev("2026-08-04 10:00:00", ip="192.0.2.9", ua=UA_IPHONE),
+    ]
+    db.create_batch("b1", [U1])
+    db.insert_events_page("b1", U1, list(reversed(events)), 1, has_more=False)
+    db.save_ip("203.0.113.10", asn=64500, as_name="AS-A")
+    db.save_ip("198.51.100.7", asn=64501, as_name="AS-B")
+    # note: UAs deliberately NOT parsed beforehand — an existing batch must still work
+    v = build_account_view(db, U1)
+    kinds = [(c.created_at[:10], c.ua_change, c.asn_changed, c.both) for c in v["changes"]]
+    assert kinds == [("2026-08-02", "minor", True, True), ("2026-08-03", "downgrade", False, False),
+                     ("2026-08-04", "major", None, False)]
+    both = v["changes"][0]
+    assert both.prev_ua == UA_CHROME_1 and both.ua == UA_CHROME_2       # full strings, not descriptions
+    assert (both.prev_asn, both.asn) == (64500, 64501) and both.as_name == "AS-B"
+    assert v["change_counts"] == {"ua_upgrade": 1, "ua_downgrade": 1, "ua_major": 1, "asn": 1, "asn_unknown": 1, "both": 1}
+    assert len(db.ua_rows([UA_CHROME_1, UA_CHROME_2, UA_IPHONE])) == 3  # parsed and saved on the way
+    flags = batch_flags(db, [U1, "00000000-0000-4000-8000-000000000000"])
+    assert flags[U1] == {"ua_downgrade": 1, "ua_other": 2, "asn": 1, "both": 1}
+    assert flags["00000000-0000-4000-8000-000000000000"] == {"ua_downgrade": 0, "ua_other": 0, "asn": 0, "both": 0}
 
 
 def test_url_path():
