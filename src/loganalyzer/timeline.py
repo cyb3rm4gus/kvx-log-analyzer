@@ -15,6 +15,8 @@ UA_CHANGE_LABEL = {"minor": "upgrade", "downgrade": "downgrade", "major": "brows
 CHANGE_KINDS = (("downgrade", "UA downgrade"), ("upgrade", "UA upgrade"), ("major", "browser/OS change"),
                 ("asn", "ASN change"), ("asn_unknown", "IP change, ASN unknown"))
 ALL_KINDS = frozenset(k for k, _ in CHANGE_KINDS)
+#: batch-table badge: an upgrade/downgrade whose browser major version moved by at least this many
+BATCH_JUMP_THRESHOLD = 2
 
 
 @dataclass
@@ -362,7 +364,8 @@ def batch_flags(db: Database, uuids: list[str]) -> dict[str, dict[str, int]]:
         r = ip_info.get(ip)
         return None if not r or r["asn"] is None else int(r["asn"])
 
-    out: dict[str, dict[str, int]] = {u: {"ua_downgrade": 0, "ua_other": 0, "asn": 0, "both": 0} for u in uuids}
+    out: dict[str, dict[str, int]] = {u: {"ua_downgrade": 0, "ua_other": 0, "asn": 0, "both": 0, "ua_jump": 0}
+                                      for u in uuids}
     cur = None
     prev_ua = prev_ip = ""
     for r in rows:
@@ -372,8 +375,12 @@ def batch_flags(db: Database, uuids: list[str]) -> dict[str, dict[str, int]]:
             continue
         ua, ip = r["user_agent"], r["ip_address"]
         change = None
+        jump = 0
         if ua != prev_ua:
-            change = ua_change(parsed(prev_ua), parsed(ua)) or "major"
+            pp, cp = parsed(prev_ua), parsed(ua)
+            change = ua_change(pp, cp) or "major"
+            if change in ("minor", "downgrade"):
+                jump = abs(major_delta(pp, cp) or 0)
         a_changed = False
         if ip != prev_ip:
             a, b = asn(prev_ip), asn(ip)
@@ -387,5 +394,7 @@ def batch_flags(db: Database, uuids: list[str]) -> dict[str, dict[str, int]]:
             f["asn"] += 1
         if change and a_changed:
             f["both"] += 1
+        if jump >= BATCH_JUMP_THRESHOLD:
+            f["ua_jump"] += 1
         prev_ua, prev_ip = ua, ip
     return out

@@ -43,6 +43,7 @@
           <td class="text-end">{{ ip_counts.get(r['uuid'], 0) }}</td>
           <td class="text-nowrap">{% set f = flags.get(r['uuid'], {}) %}
             {% if f.get('ua_downgrade') %}<span class="badge bg-red-lt">UA downgrade {{ f['ua_downgrade'] }}</span>{% endif %}
+            {% if f.get('ua_jump') %}<span class="badge bg-orange-lt" title="browser major version moved by 2 or more between two events">UA jump ≥2 {{ f['ua_jump'] }}</span>{% endif %}
             {% if f.get('both') %}<span class="badge bg-purple-lt">UA+ASN {{ f['both'] }}</span>{% endif %}
             {% if f.get('asn') %}<span class="badge bg-yellow-lt">ASN {{ f['asn'] }}</span>{% endif %}
             {% if f.get('ua_other') %}<span class="badge bg-azure-lt">UA {{ f['ua_other'] }}</span>{% endif %}</td>
@@ -53,7 +54,7 @@
     </table>
   </div>
   <div class="card-footer text-secondary small">
-    <b>Changes:</b> UA downgrade = a browser or OS version went <i>down</i> between two events (open those first); UA+ASN = a user-agent change and an ASN change on the same event; ASN = origin ASN changed; UA = other user-agent changes.<br>
+    <b>Changes:</b> UA downgrade = a browser or OS version went <i>down</i> between two events (open those first); UA jump ≥2 = the browser major version moved by two or more in one step (either direction); UA+ASN = a user-agent change and an ASN change on the same event; ASN = origin ASN changed; UA = other user-agent changes.<br>
     Pages are 1 000 events each, pulled newest-first with a unique tiebreaker (Guardhouse fix of 2026-09-02); an event arriving mid-pull can appear on two pages and is collapsed by the store.
   </div>
 </div>

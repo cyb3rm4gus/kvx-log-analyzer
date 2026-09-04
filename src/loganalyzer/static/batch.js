@@ -12,6 +12,7 @@
   var flags = function (f) {
     var out = "";
     if (f.ua_downgrade) { out += '<span class="badge bg-red-lt">UA downgrade ' + f.ua_downgrade + '</span> '; }
+    if (f.ua_jump) { out += '<span class="badge bg-orange-lt" title="browser major version moved by 2 or more">UA jump \u22652 ' + f.ua_jump + '</span> '; }
     if (f.both) { out += '<span class="badge bg-purple-lt">UA+ASN ' + f.both + '</span> '; }
     if (f.asn) { out += '<span class="badge bg-yellow-lt">ASN ' + f.asn + '</span> '; }
     if (f.ua_other) { out += '<span class="badge bg-azure-lt">UA ' + f.ua_other + '</span>'; }

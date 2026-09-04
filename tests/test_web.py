@@ -132,7 +132,13 @@ def test_changes_section_and_batch_downgrade_flag(client, db):
     batch = client.get("/batches/b1").text
     assert "UA downgrade 1" in batch and "UA+ASN 1" in batch
     status = client.get("/batches/b1/status").json()
-    assert status["uuids"][0]["flags"] == {"ua_downgrade": 1, "ua_other": 0, "asn": 1, "both": 1}
+    assert status["uuids"][0]["flags"] == {"ua_downgrade": 1, "ua_other": 0, "asn": 1, "both": 1, "ua_jump": 0}
+    assert "UA jump ≥2 " not in batch.split("<tbody")[1].split("</tbody>")[0]   # legend mentions it; no row badge
+    # a 3-major downgrade on another account gets the badge
+    db.insert_events_page("b1", U2, list(reversed([ev("2026-08-01 10:00:00", ua=UA_CHROME_2.replace("127", "130")),
+                                                    ev("2026-08-02 10:00:00", ua=UA_CHROME_1)])), 1, has_more=False)
+    db.execute("INSERT INTO batch_uuids (batch_id, uuid, status) VALUES ('b1', ?, 'done')", (U2,))
+    assert "UA jump ≥2 1" in client.get("/batches/b1").text
 
 
 def test_native_tabler_badges_only(client, db):

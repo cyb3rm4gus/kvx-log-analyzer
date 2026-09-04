@@ -94,8 +94,8 @@ def test_changes_section_and_batch_flags(db: Database):
     first = v["changes"][0]           # 2026-08-01: came from the 2025 event on /old, referred from ads
     assert first.prev_path == "/old" and first.prev_referrer == "https://ads.example/x"
     flags = batch_flags(db, [U1, "00000000-0000-4000-8000-000000000000"])
-    assert flags[U1] == {"ua_downgrade": 1, "ua_other": 2, "asn": 1, "both": 1}
-    assert flags["00000000-0000-4000-8000-000000000000"] == {"ua_downgrade": 0, "ua_other": 0, "asn": 0, "both": 0}
+    assert flags[U1] == {"ua_downgrade": 1, "ua_other": 2, "asn": 1, "both": 1, "ua_jump": 0}   # 126↔127: 1 apart
+    assert flags["00000000-0000-4000-8000-000000000000"] == {"ua_downgrade": 0, "ua_other": 0, "asn": 0, "both": 0, "ua_jump": 0}
 
 
 def test_change_kind_filters_and_major_threshold(db: Database):
@@ -129,6 +129,8 @@ def test_change_kind_filters_and_major_threshold(db: Database):
     assert f.timeline_qs() == "ip=1.2.3.4&kf=1&k=downgrade&k=asn&combine=1&delta=3"
     assert f.timeline_qs(exclude=("kf", "k", "combine", "delta")) == "ip=1.2.3.4&cy=2026"
     assert change_matches(v["changes"][0], Filters(kinds=frozenset({"asn"})))
+    # batch badge: the 150→144 step (6 apart) counts; 144→145 and 145→144 (1 apart) do not
+    assert batch_flags(db, [U1])[U1] == {"ua_downgrade": 2, "ua_other": 1, "asn": 1, "both": 1, "ua_jump": 1}
 
 
 def test_url_path():
