@@ -10,7 +10,8 @@ CREATE TABLE IF NOT EXISTS batches (
     created_at  TEXT NOT NULL,
     status      TEXT NOT NULL,           -- running | done | failed
     uuid_count  INTEGER NOT NULL,
-    error       TEXT
+    error       TEXT,
+    alias       TEXT                     -- operator-assigned name, used in export file names
 );
 
 CREATE TABLE IF NOT EXISTS batch_uuids (

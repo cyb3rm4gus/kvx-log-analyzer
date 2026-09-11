@@ -33,6 +33,13 @@ class Database:
         self._lock = threading.RLock()
         with self._lock:
             self._conn.executescript(SCHEMA.read_text())
+            self._migrate()
+
+    def _migrate(self) -> None:
+        """Columns added after a store was created (an existing batch must keep working)."""
+        cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(batches)")}
+        if "alias" not in cols:
+            self._conn.execute("ALTER TABLE batches ADD COLUMN alias TEXT")
 
     # -- primitives -------------------------------------------------------
     def execute(self, sql: str, params: Iterable[Any] = ()) -> sqlite3.Cursor:
@@ -65,6 +72,17 @@ class Database:
                 [(batch_id, u, now_iso()) for u in uuids],
             )
             self._conn.execute("COMMIT")
+
+    def set_batch_alias(self, batch_id: str, alias: str) -> None:
+        self.execute("UPDATE batches SET alias = ? WHERE id = ?", (alias or None, batch_id))
+
+    def events_for_export(self, uuid: str) -> list[sqlite3.Row]:
+        """Newest first — the order Guardhouse sends them (`created_at DESC`)."""
+        return self.query(
+            "SELECT " + ", ".join(EVENT_COLUMNS) + " FROM events WHERE player_uuid = ? "
+            "ORDER BY created_at DESC, frontend_session_uuid, rowid",
+            (uuid,),
+        )
 
     def set_batch_status(self, batch_id: str, status: str, error: str | None = None) -> None:
         self.execute("UPDATE batches SET status = ?, error = ? WHERE id = ?", (status, error, batch_id))

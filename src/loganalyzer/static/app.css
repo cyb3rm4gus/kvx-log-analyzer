@@ -3,3 +3,5 @@
 .fetched { font-size: 0.75em; }
 .ua-raw { max-width: 32rem; }
 .change-side { min-width: 26rem; }
+dialog.dialog-card { border: 0; padding: 0; background: transparent; min-width: 28rem; }
+dialog.dialog-card::backdrop { background: rgba(0, 0, 0, 0.6); }

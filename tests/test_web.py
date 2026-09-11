@@ -141,6 +141,25 @@ def test_changes_section_and_batch_downgrade_flag(client, db):
     assert "UA jump ≥2 1" in client.get("/batches/b1").text
 
 
+def test_alias_dialog_and_export_download(client, db):
+    import io, tarfile
+    db.create_batch("b1", [U1]); db.set_batch_status("b1", "done")
+    db.insert_events_page("b1", U1, list(reversed(sample_events())), 1, has_more=False)
+    page = client.get("/batches/b1").text
+    assert "Assign batch alias" in page and 'data-open-dialog="alias-dialog"' in page and "Export batch" in page
+    r = client.post("/batches/b1/alias", data={"alias": "case one"}, follow_redirects=False)
+    assert r.status_code == 303
+    page = client.get("/batches/b1").text
+    assert "case one" in page and "Change batch alias" in page
+    assert "case one" in client.get("/").text                     # alias column on the home list
+    r = client.get("/batches/b1/export")
+    assert r.status_code == 200 and r.headers["content-type"] == "application/gzip"
+    assert r.headers["content-disposition"] == 'attachment; filename="export_case_one.tar.gz"'
+    with tarfile.open(fileobj=io.BytesIO(r.content), mode="r:gz") as tar:
+        assert [m.name for m in tar.getmembers()] == [f"export_case_one_{U1}.json"]
+    assert client.get("/batches/nope/export").status_code == 404
+
+
 def test_native_tabler_badges_only(client, db):
     db.create_batch("b1", [U1]); db.set_batch_status("b1", "done")
     db.set_uuid_status("b1", U1, "done")

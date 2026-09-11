@@ -1,15 +1,33 @@
 {% extends "base.html" %}
 {% block title %}Batch {{ batch['id'] }}{% endblock %}
-{% block head %}{% if live %}<script src="/static/batch.js" defer></script>{% endif %}{% endblock %}
+{% block head %}{% if live %}<script src="/static/batch.js" defer></script>{% endif %}<script src="/static/dialog.js" defer></script>{% endblock %}
 {% block content %}
 <div id="batch" data-batch-id="{{ batch['id'] }}"></div>
 <div class="d-flex justify-content-between align-items-center mb-3">
-  <h2 class="mb-0">Batch <span class="font-monospace">{{ batch['id'] }}</span>
+  <h2 class="mb-0">{% if batch['alias'] %}{{ batch['alias'] }} <span class="text-secondary fs-4 font-monospace">{{ batch['id'] }}</span>{% else %}Batch <span class="font-monospace">{{ batch['id'] }}</span>{% endif %}
     <span class="badge {{ STATUS_BADGE.get(batch['status'], 'bg-secondary-lt') }} ms-2">{{ batch['status'] }}</span></h2>
-  <form method="post" action="/batches/{{ batch['id'] }}/purge" class="m-0">
-    <button class="btn btn-outline-danger btn-sm" type="submit">Purge batch</button>
-  </form>
+  <div class="d-flex gap-2">
+    <button class="btn btn-sm" type="button" data-open-dialog="alias-dialog">{% if batch['alias'] %}Change batch alias{% else %}Assign batch alias{% endif %}</button>
+    <a class="btn btn-sm btn-primary" href="/batches/{{ batch['id'] }}/export" title="one JSON file per uuid, events as Guardhouse sent them, in a tar.gz">Export batch</a>
+    <form method="post" action="/batches/{{ batch['id'] }}/purge" class="m-0">
+      <button class="btn btn-outline-danger btn-sm" type="submit">Purge batch</button>
+    </form>
+  </div>
 </div>
+<dialog id="alias-dialog" class="dialog-card">
+  <form method="post" action="/batches/{{ batch['id'] }}/alias" class="card m-0">
+    <div class="card-header"><h3 class="card-title">Batch alias</h3></div>
+    <div class="card-body">
+      <label class="form-label" for="alias-input">Alias — used in export file names (<span class="font-monospace">export_&lt;alias&gt;.tar.gz</span>)</label>
+      <input id="alias-input" class="form-control" name="alias" maxlength="64" value="{{ batch['alias'] or '' }}" placeholder="e.g. case-2026-09-11" autofocus>
+      <div class="form-hint">Letters, digits, dot, dash and underscore are kept in file names; anything else becomes an underscore.</div>
+    </div>
+    <div class="card-footer d-flex justify-content-end gap-2">
+      <button class="btn" type="button" data-close-dialog="alias-dialog">Cancel</button>
+      <button class="btn btn-primary" type="submit">Save alias</button>
+    </div>
+  </form>
+</dialog>
 {% if batch['error'] %}<div class="alert alert-danger">{{ batch['error'] }}</div>{% endif %}
 {% if rejected or duplicates or truncated %}
 <div class="alert alert-warning">Ignored from the paste: {{ rejected or 0 }} non-uuid token(s), {{ duplicates or 0 }} duplicate(s){% if truncated and truncated != '0' %}, {{ truncated }} beyond the 1 000-uuid limit{% endif %}.</div>

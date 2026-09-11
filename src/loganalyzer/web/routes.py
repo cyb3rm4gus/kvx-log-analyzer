@@ -12,10 +12,11 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Form, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
 from ..enrich.ipqs import IPQSError
+from ..export import build_export
 from ..timeline import ALL_KINDS, Filters, batch_flags, build_account_view, ipqs_context
 from ..uuids import UUID_RE, parse_uuids
 
@@ -107,6 +108,27 @@ async def batch_page(request: Request, batch_id: str) -> Any:
                   rejected=request.query_params.get("rejected"),
                   duplicates=request.query_params.get("duplicates"),
                   truncated=request.query_params.get("truncated"))
+
+
+@router.post("/batches/{batch_id}/alias")
+async def set_alias(request: Request, batch_id: str, alias: str = Form("")) -> Any:
+    st = _state(request)
+    if not st.db.one("SELECT 1 FROM batches WHERE id = ?", (batch_id,)):
+        return render(request, "error.html", message="No such batch.", status=404)
+    st.db.set_batch_alias(batch_id, alias.strip()[:64])
+    return RedirectResponse(f"/batches/{batch_id}", status_code=303)
+
+
+@router.get("/batches/{batch_id}/export")
+async def export_batch(request: Request, batch_id: str) -> Any:
+    """One JSON file per uuid (events as Guardhouse sent them, no metadata) in a tar.gz."""
+    st = _state(request)
+    if not st.db.one("SELECT 1 FROM batches WHERE id = ?", (batch_id,)):
+        return render(request, "error.html", message="No such batch.", status=404)
+    name, data = build_export(st.db, batch_id)
+    return Response(content=data, media_type="application/gzip",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"',
+                             "Content-Length": str(len(data)), "Cache-Control": "no-store"})
 
 
 @router.post("/batches/{batch_id}/retry")
